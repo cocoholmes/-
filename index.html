@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>智能外呼控制台</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Noto Sans SC', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        :root {
+            --bg: #0c0e14;
+            --bg-s: #12151e;
+            --card: #181c28;
+            --card-h: #1e2235;
+            --border: #252a3a;
+            --border-l: #2f3549;
+            --fg: #e8eaf0;
+            --muted: #8b90a0;
+            --accent: #10b981;
+            --accent-l: #34d399;
+            --accent-dim: rgba(16,185,129,0.15);
+            --cyan: #06b6d4;
+            --cyan-dim: rgba(6,182,212,0.15);
+            --amber: #f59e0b;
+            --amber-dim: rgba(245,158,11,0.15);
+            --red: #ef4444;
+            --red-dim: rgba(239,68,68,0.15);
+        }
+        * { box-sizing: border-box; }
+        body {
+            background: var(--bg);
+            color: var(--fg);
+            font-family: 'Noto Sans SC', sans-serif;
+            min-height: 100vh;
+        }
+        /* 背景光晕 */
+        body::before {
+            content: '';
+            position: fixed;
+            top: -40%;
+            right: -15%;
+            width: 600px;
+            height: 600px;
+            background: radial-gradient(circle, rgba(16,185,129,0.06) 0%, transparent 70%);
+            pointer-events: none;
+        }
+        body::after {
+            content: '';
+            position: fixed;
+            bottom: -25%;
+            left: -10%;
+            width: 500px;
+            height: 500px;
+            background: radial-gradient(circle, rgba(6,182,212,0.04) 0%, transparent 70%);
+            pointer-events: none;
+        }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+        /* 呼吸灯 */
+        @keyframes pulse-cyan {
+            0%,100% { box-shadow: 0 0 0 0 rgba(6,182,212,0.35); }
+            50% { box-shadow: 0 0 0 10px rgba(6,182,212,0); }
+        }
+        @keyframes pulse-green {
+            0%,100% { box-shadow: 0 0 0 0 rgba(16,185,129,0.35); }
+            50% { box-shadow: 0 0 0 10px rgba(16,185,129,0); }
+        }
+        @keyframes pulse-amber {
+            0%,100% { box-shadow: 0 0 0 0 rgba(245,158,11,0.35); }
+            50% { box-shadow: 0 0 0 10px rgba(245,158,11,0); }
+        }
+        .pulse-cyan { animation: pulse-cyan 1.8s ease-in-out infinite; }
+        .pulse-green { animation: pulse-green 2s ease-in-out infinite; }
+        .pulse-amber { animation: pulse-amber 2s ease-in-out infinite; }
+
+        /* 卡片动画 */
+        @keyframes card-in {
+            from { opacity: 0; transform: translateY(16px) scale(0.96); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .card-enter { animation: card-in 0.35s cubic-bezier(0.16,1,0.3,1) forwards; }
+
+        /* Toast */
+        @keyframes toast-in {
+            from { opacity: 0; transform: translateX(100%); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        @keyframes toast-out {
+            from { opacity: 1; transform: translateX(0); }
+            to { opacity: 0; transform: translateX(100%); }
+        }
+        .toast-in { animation: toast-in 0.3s ease-out forwards; }
+        .toast-out { animation: toast-out 0.25s ease-in forwards; }
+
+        /* 波形 */
+        @keyframes w1 { 0%,100% { height: 6px; } 50% { height: 18px; } }
+        @keyframes w2 { 0%,100% { height: 12px; } 50% { height: 6px; } }
+        @keyframes w3 { 0%,100% { height: 8px; } 50% { height: 20px; } }
+        @keyframes w4 { 0%,100% { height: 14px; } 50% { height: 5px; } }
+        @keyframes w5 { 0%,100% { height: 5px; } 50% { height: 16px; } }
+        .wave-bar { width: 3px; border-radius: 2px; }
+
+        /* 拨号旋转 */
+        @keyframes spin-slow { to { transform: rotate(360deg); } }
+        .spin-slow { animation: spin-slow 1.5s linear infinite; }
+
+        /* 状态点 */
+        .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+
+        /* 按钮 */
+        .btn-go {
+            background: var(--accent); color: #fff;
+            transition: all 0.2s;
+        }
+        .btn-go:hover { background: var(--accent-l); box-shadow: 0 4px 20px rgba(16,185,129,0.3); }
+        .btn-go:active { transform: scale(0.97); }
+        .btn-stop {
+            background: var(--red); color: #fff;
+            transition: all 0.2s;
+        }
+        .btn-stop:hover { box-shadow: 0 4px 20px rgba(239,68,68,0.3); }
+        .btn-stop:active { transform: scale(0.97); }
+
+        /* 并发按钮 */
+        .conc-num {
+            width: 38px; height: 38px;
+            display: flex; align-items: center; justify-content: center;
+            border: 1px solid var(--border); border-radius: 8px;
+            background: var(--card); color: var(--muted);
+            cursor: pointer; transition: all 0.2s;
+            font-weight: 700; font-size: 15px;
+        }
+        .conc-num.on {
+            border-color: var(--accent); color: var(--accent);
+            background: var(--accent-dim);
+        }
+        .conc-num:hover:not(.on) { border-color: var(--border-l); color: var(--fg); }
+
+        /* 队列项 */
+        .q-item {
+            transition: all 0.15s;
+            border-left: 3px solid transparent;
+        }
+        .q-item:hover { background: var(--card-h); }
+        .q-item.active { border-left-color: var(--accent); background: var(--accent-dim); }
+        .q-item.done { opacity: 0.35; }
+
+        /* 统计卡 */
+        .stat {
+            background: var(--card); border: 1px solid var(--border);
+            border-radius: 12px; padding: 14px 18px;
+            transition: border-color 0.2s;
+        }
+
+        /* 呼叫卡片 */
+        .call-card {
+            background: var(--card); border: 1px solid var(--border);
+            border-radius: 14px; padding: 20px;
+            position: relative; overflow: hidden;
+            transition: border-color 0.3s;
+        }
+        .call-card::before {
+            content: ''; position: absolute;
+            top: 0; left: 0; right: 0; height: 3px;
+            background: var(--border); transition: background 0.3s;
+        }
+        .call-card.s2 { border-color: rgba(6,182,212,0.3); }
+        .call-card.s2::before { background: var(--cyan); }
+        .call-card.s3 { border-color: rgba(16,185,129,0.3); }
+        .call-card.s3::before { background: var(--accent); }
+        .call-card.s4 { border-color: rgba(245,158,11,0.3); }
+        .call-card.s4::before { background: var(--amber); }
+
+        /* 空槽位 */
+        .empty-slot {
+            border: 2px dashed var(--border); border-radius: 14px;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            min-height: 210px; color: var(--muted); opacity: 0.4;
+        }
+
+        /* 人工介入 */
+        .btn-intervene {
+            background: var(--amber-dim); border: 1px solid rgba(245,158,11,0.3);
+            color: var(--amber); padding: 7px 14px; border-radius: 7px;
+            font-size: 13px; cursor: pointer; transition: all 0.2s; font-weight: 500;
+        }
+        .btn-intervene:hover {
+            background: rgba(245,158,11,0.25); border-color: var(--amber);
+            box-shadow: 0 2px 14px rgba(245,158,11,0.2);
+        }
+
+        /* 进度条 */
+        .prog-track { height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; }
+        .prog-bar { height: 100%; border-radius: 2px; transition: width 0.8s ease; }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
+    </style>
+</head>
+<body class="relative">
+<div class="relative z-10 max-w-7xl mx-auto px-4 py-5">
+
+    <!-- 标题栏 -->
+    <header class="mb-5 flex items-center justify-between">
+        <div>
+            <h1 class="text-2xl font-bold tracking-tight flex items-center gap-2">
+                <i class="fa-solid fa-headset" style="color:var(--accent);"></i>
+                智能外呼控制台
+            </h1>
+            <p class="text-sm mt-1" style="color:var(--muted);">自动外呼任务管理与实时监控</p>
+        </div>
+        <div class="text-sm font-mono" style="color:var(--muted);" id="clock"></div>
+    </header>
+
+    <!-- 统计栏 -->
+    <div class="grid grid-cols-5 gap-3 mb-5" id="stats"></div>
+
+    <!-- 控制面板 -->
+    <div class="flex items-center justify-between gap-4 mb-5 px-5 py-3.5 rounded-xl" style="background:var(--bg-s);border:1px solid var(--border);">
+        <div class="flex items-center gap-4">
+            <span class="text-sm font-medium" style="color:var(--muted);">并发量</span>
+            <div class="flex items-center gap-2" id="concBtns"></div>
+        </div>
+        <button id="btnToggle" class="btn-go px-6 py-2.5 rounded-lg font-medium text-sm flex items-center gap-2" onclick="toggleRun()">
+            <i class="fa-solid fa-play text-xs"></i><span>开始呼叫</span>
+        </button>
+    </div>
+
+    <!-- 主内容 -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+        <!-- 队列 -->
+        <div class="lg:col-span-4">
+            <div class="rounded-xl overflow-hidden" style="background:var(--bg-s);border:1px solid var(--border);">
+                <div class="px-4 py-3 flex items-center justify-between" style="border-bottom:1px solid var(--border);">
+                    <span class="text-sm font-medium"><i class="fa-solid fa-list-ol mr-2" style="color:var(--muted);"></i>客户队列</span>
+                    <span class="text-xs font-mono px-2 py-0.5 rounded" style="background:var(--card);color:var(--muted);" id="qCount"></span>
+                </div>
+                <div class="overflow-y-auto" style="max-height:540px;" id="qList"></div>
+            </div>
+        </div>
+
+        <!-- 卡片 + 日志 -->
+        <div class="lg:col-span-8 flex flex-col gap-4">
+            <div class="rounded-xl overflow-hidden" style="background:var(--bg-s);border:1px solid var(--border);">
+                <div class="px-4 py-3 flex items-center justify-between" style="border-bottom:1px solid var(--border);">
+                    <span class="text-sm font-medium"><i class="fa-solid fa-signal mr-2" style="color:var(--muted);"></i>呼叫任务</span>
+                    <span class="text-xs" style="color:var(--muted);" id="activeInfo"></span>
+                </div>
+                <div class="p-4">
+                    <div class="grid gap-4" style="grid-template-columns:repeat(auto-fill,minmax(250px,1fr));" id="cardsGrid"></div>
+                </div>
+            </div>
+            <!-- 日志 -->
+            <div class="rounded-xl overflow-hidden" style="background:var(--bg-s);border:1px solid var(--border);">
+                <div class="px-4 py-3 flex items-center justify-between" style="border-bottom:1px solid var(--border);">
+                    <span class="text-sm font-medium"><i class="fa-solid fa-terminal mr-2" style="color:var(--muted);"></i>运行日志</span>
+                    <button class="text-xs px-2 py-0.5 rounded cursor-pointer" style="background:var(--card);color:var(--muted);border:none;" onclick="clearLog()">清空</button>
+                </div>
+                <div class="overflow-y-auto font-mono text-xs px-3 py-2" style="max-height:150px;color:var(--muted);" id="logBox">
+                    <div style="opacity:0.4;">等待操作...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Toast -->
+<div class="fixed top-4 right-4 z-50 flex flex-col gap-2" id="toasts"></div>
+
+<script>
+// ===================== 数据与常量 =====================
+const ST = {
+    1: { label: '待呼叫',     color: '#6b7280', bg: 'rgba(107,114,128,0.10)', icon: 'fa-clock' },
+    2: { label: '机器人呼叫中', color: '#06b6d4', bg: 'rgba(6,182,212,0.10)',   icon: 'fa-robot' },
+    3: { label: '机器人通话中', color: '#10b981', bg: 'rgba(16,185,129,0.10)',  icon: 'fa-comments' },
+    4: { label: '人工呼叫中',   color: '#f59e0b', bg: 'rgba(245,158,11,0.10)',  icon: 'fa-headset' },
+    5: { label: '已完成',     color: '#6b7280', bg: 'rgba(107,114,128,0.06)', icon: 'fa-circle-check' },
+};
+
+// 模拟客户队列
+const customers = [
+    { pid:'CUS-10001', status:1, highIntent:true  },
+    { pid:'CUS-10002', status:1, highIntent:false },
+    { pid:'CUS-10003', status:1, highIntent:false },
+    { pid:'CUS-10004', status:1, highIntent:true  },
+    { pid:'CUS-10005', status:1, highIntent:false },
+    { pid:'CUS-10006', status:1, highIntent:false },
+    { pid:'CUS-10007', status:1, highIntent:true  },
+    { pid:'CUS-10008', status:1, highIntent:false },
+    { pid:'CUS-10009', status:1, highIntent:false },
+    { pid:'CUS-10010', status:1, highIntent:false },
+    { pid:'CUS-10011', status:1, highIntent:true  },
+    { pid:'CUS-10012', status:1, highIntent:false },
+    { pid:'CUS-10013', status:1, highIntent:false },
+    { pid:'CUS-10014', status:1, highIntent:false },
+    { pid:'CUS-10015', status:1, highIntent:true  },
+];
+// 给每个客户加上运行时字段
+customers.forEach(c => {
+    c.pollTimer = null;
+    c.callStart = null;
+    c.endReason = '';
+    // 状态3时的话术总时长（随机，模拟不同话术长度）
+    c.scriptDuration = 10000 + Math.random() * 6000;
+});
+
+let concurrency = 1;       // 并发量 1-3
+let running = false;        // 是否运行中
+let tickTimer = null;       // 全局时钟
+const visiblePids = new Set(); // 已渲染过的卡片pid（控制入场动画）
+
+// ===================== 工具 =====================
+function counts() {
+    const c = {1:0,2:0,3:0,4:0,5:0};
+    customers.forEach(x => c[x.status]++);
+    return c;
+}
+function actives() { return customers.filter(c => [2,3,4].includes(c.status)); }
+function fmtTime(ms) {
+    const s = Math.floor(ms/1000);
+    return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
+}
+function now() {
+    const d = new Date();
+    return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`;
+}
+
+// ===================== 日志 =====================
+function log(msg, type='info') {
+    const box = document.getElementById('logBox');
+    if (box.querySelector('div[style*="opacity:0.4"]')) box.innerHTML = '';
+    const clr = {info:'var(--muted)',success:'var(--accent)',warn:'var(--amber)',error:'var(--red)',api:'var(--cyan)'}[type];
+    const ico = {info:'fa-circle-info',success:'fa-circle-check',warn:'fa-triangle-exclamation',error:'fa-circle-xmark',api:'fa-arrow-right-arrow-left'}[type];
+    box.insertAdjacentHTML('beforeend',
+        `<div class="flex items-start gap-2 py-0.5"><span style="color:${clr};opacity:0.5;">${now()}</span><i class="fa-solid ${ico}" style="color:${clr};margin-top:2px;font-size:10px;"></i><span style="color:${clr};">${msg}</span></div>`
+    );
+    box.scrollTop = box.scrollHeight;
+}
+function clearLog() {
+    document.getElementById('logBox').innerHTML = '<div style="opacity:0.4;">日志已清空</div>';
+}
+
+// ===================== Toast =====================
+function toast(msg, type='info') {
+    const c = {info:['rgba(6,182,212,0.15)','rgba(6,182,212,0.3)','#06b6d4','fa-circle-info'],success:['rgba(16,185,129,0.15)','rgba(16,185,129,0.3)','#10b981','fa-circle-check'],warn:['rgba(245,158,11,0.15)','rgba(245,158,11,0.3)','#f59e0b','fa-triangle-exclamation'],error:['rgba(239,68,68,0.15)','rgba(239,68,68,0.3)','#ef4444','fa-circle-xmark']}[type];
+    const el = document.createElement('div');
+    el.className = 'toast-in flex items-center gap-2 px-4 py-3 rounded-lg text-sm font-medium';
+    el.style.cssText = `background:${c[0]};border:1px solid ${c[1]};color:${c[2]};backdrop-filter:blur(12px);min-width:200px;`;
+    el.innerHTML = `<i class="fa-solid ${c[3]}"></i><span>${msg}</span>`;
+    document.getElementById('toasts').appendChild(el);
+    setTimeout(() => { el.className = el.className.replace('toast-in','toast-out'); setTimeout(() => el.remove(), 260); }, 2500);
+}
+
+// ===================== 渲染 =====================
+function renderStats() {
+    const ct = counts();
+    document.getElementById('stats').innerHTML = [1,2,3,4,5].map(k => {
+        const s = ST[k];
+        return `<div class="stat"><div class="flex items-center gap-2 mb-1.5"><i class="fa-solid ${s.icon} text-xs" style="color:${s.color};"></i><span class="text-xs" style="color:var(--muted);">${s.label}</span></div><div class="text-2xl font-bold font-mono" style="color:${s.color};">${ct[k]}</div></div>`;
+    }).join('');
+}
+
+function renderConc() {
+    document.getElementById('concBtns').innerHTML = [1,2,3].map(i =>
+        `<button class="conc-num ${concurrency===i?'on':''}" onclick="setConc(${i})">${i}</button>`
+    ).join('');
+}
+
+function renderQueue() {
+    const ct = counts();
+    document.getElementById('qCount').textContent = `${ct[1]} 待呼叫`;
+    document.getElementById('qList').innerHTML = customers.map((c,i) => {
+        const s = ST[c.status];
+        const isA = [2,3,4].includes(c.status);
+        const isD = c.status === 5;
+        let cls = 'q-item px-4 py-2.5 flex items-center gap-3';
+        if (isA) cls += ' active';
+        if (isD) cls += ' done';
+        return `<div class="${cls}">
+            <span class="text-xs font-mono w-5 text-right" style="color:var(--muted);opacity:0.4;">${i+1}</span>
+            <div class="flex-1 min-w-0">
+                <span class="text-sm font-medium truncate" style="color:${isD?'var(--muted)':'var(--fg)'};">${c.pid}</span>
+                ${c.highIntent ? '<span class="text-xs ml-2 px-1.5 py-0.5 rounded" style="background:var(--amber-dim);color:var(--amber);font-size:10px;white-space:nowrap;">高意向</span>' : ''}
+            </div>
+            <div class="flex items-center gap-2 flex-shrink-0">
+                <span class="dot" style="background:${s.color};"></span>
+                <span class="text-xs whitespace-nowrap" style="color:${s.color};">${s.label}</span>
+                ${isD && c.endReason ? `<span class="text-xs" style="color:var(--muted);opacity:0.5;">(${c.endReason})</span>` : ''}
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function renderCards() {
+    const grid = document.getElementById('cardsGrid');
+    const list = actives();
+    document.getElementById('activeInfo').textContent = `${list.length} / ${concurrency} 进行中`;
+
+    let html = '';
+    list.forEach(c => {
+        const s = ST[c.status];
+        const elapsed = c.callStart ? Date.now() - c.callStart : 0;
+        const isNew = !visiblePids.has(c.pid);
+        if (isNew) visiblePids.add(c.pid);
+        const anim = isNew ? 'card-enter' : '';
+        const pulse = c.status===2?'pulse-cyan':c.status===3?'pulse-green':c.status===4?'pulse-amber':'';
+        const sc = `s${c.status}`;
+
+        // 话术进度（仅状态3）
+        let progHtml = '';
+        if (c.status === 3 && c.callStart) {
+            // 状态2持续约4秒，之后进入状态3
+            const talkElapsed = Math.max(0, elapsed - 4000);
+            const pct = Math.min(100, (talkElapsed / c.scriptDuration) * 100);
+            progHtml = `<div class="prog-track mt-3"><div class="prog-bar" style="width:${pct}%;background:var(--accent);"></div></div>
+                <div class="text-xs mt-1 prog-txt" style="color:var(--muted);">话术进度 ${Math.round(pct)}%</div>`;
+        }
+
+        // 波形（状态3/4）
+        let wave = '';
+        if (c.status === 3 || c.status === 4) {
+            const wc = c.status===3 ? 'var(--accent)' : 'var(--amber)';
+            wave = `<div class="flex items-end gap-0.5 mt-3" style="height:22px;">
+                <div class="wave-bar" style="background:${wc};animation:w1 .8s ease-in-out infinite;"></div>
+                <div class="wave-bar" style="background:${wc};animation:w2 .6s ease-in-out infinite .1s;"></div>
+                <div class="wave-bar" style="background:${wc};animation:w3 .7s ease-in-out infinite .2s;"></div>
+                <div class="wave-bar" style="background:${wc};animation:w4 .5s ease-in-out infinite .05s;"></div>
+                <div class="wave-bar" style="background:${wc};animation:w5 .9s ease-in-out infinite .15s;"></div>
+            </div>`;
+        }
+
+        // 拨号图标（状态2）
+        let dialing = '';
+        if (c.status === 2) {
+            dialing = `<div class="flex items-center gap-2 mt-3" style="color:var(--cyan);"><i class="fa-solid fa-phone-volume spin-slow text-sm"></i><span class="text-xs">正在拨号...</span></div>`;
+        }
+
+        // 人工介入按钮
+        let intvBtn = '';
+        if (c.status === 2 || c.status === 3) {
+            intvBtn = `<button class="btn-intervene w-full mt-3" onclick="intervene('${c.pid}')"><i class="fa-solid fa-user-tie mr-1.5"></i>人工介入</button>`;
+        }
+
+        html += `<div class="call-card ${sc} ${anim} ${pulse}" data-card="${c.pid}">
+            <div class="flex items-start justify-between mb-2">
+                <div>
+                    <div class="flex items-center gap-2 mb-1">
+                        <span class="text-base font-bold font-mono">${c.pid}</span>
+                        ${c.highIntent ? '<span class="text-xs px-1.5 py-0.5 rounded" style="background:var(--amber-dim);color:var(--amber);font-size:10px;">高意向</span>' : ''}
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <span class="dot" style="background:${s.color};"></span>
+                        <span class="text-xs font-medium" style="color:${s.color};">${s.label}</span>
+                    </div>
+                </div>
+                <div class="text-right">
+                    <div class="text-xl font-bold font-mono dur" data-dur="${c.pid}">${fmtTime(elapsed)}</div>
+                    <div class="text-xs" style="color:var(--muted);">通话时长</div>
+                </div>
+            </div>
+            ${dialing}${wave}${progHtml}${intvBtn}
+        </div>`;
+    });
+
+    // 空槽位
+    const empty = concurrency - list.length;
+    for (let i = 0; i < empty; i++) {
+        html += `<div class="empty-slot"><i class="fa-solid fa-phone-slash text-2xl mb-2" style="opacity:0.3;"></i><span class="text-xs">空闲槽位</span></div>`;
+    }
+    grid.innerHTML = html;
+}
+
+function renderAll() { renderStats(); renderQueue(); renderCards(); }
+
+// ===================== 核心逻辑 =====================
+
+// 设置并发量
+function setConc(val) {
+    const old = concurrency;
+    concurrency = val;
+    renderConc();
+    log(`并发量调整为 ${val}`, 'info');
+    // 并发量增加时尝试补充
+    if (running && val > old) tryNext();
+}
+
+// 开始/停止
+function toggleRun() { running ? stopRun() : startRun(); }
+
+function startRun() {
+    if (!customers.some(c => c.status === 1)) {
+        toast('没有待呼叫的客户', 'warn');
+        return;
+    }
+    running = true;
+    updateBtn();
+    log('呼叫任务已启动', 'success');
+    toast('呼叫任务已启动', 'success');
+
+    // 全局时钟：每秒刷新卡片时长和进度
+    tickTimer = setInterval(() => {
+        actives().forEach(c => {
+            if (!c.callStart) return;
+            const el = document.querySelector(`[data-dur="${c.pid}"]`);
+            if (el) el.textContent = fmtTime(Date.now() - c.callStart);
+            if (c.status === 3) {
+                const card = document.querySelector(`[data-card="${c.pid}"]`);
+                if (card) {
+                    const talkEl = Math.max(0, (Date.now() - c.callStart) - 4000);
+                    const pct = Math.min(100, (talkEl / c.scriptDuration) * 100);
+                    const bar = card.querySelector('.prog-bar');
+                    const txt = card.querySelector('.prog-txt');
+                    if (bar) bar.style.width = `${pct}%`;
+                    if (txt) txt.textContent = `话术进度 ${Math.round(pct)}%`;
+                }
+            }
+        });
+    }, 500);
+
+    tryNext();
+}
+
+function stopRun() {
+    running = false;
+    updateBtn();
+    if (tickTimer) { clearInterval(tickTimer); tickTimer = null; }
+    log('呼叫任务已停止（进行中的将自然完成）', 'warn');
+    toast('已停止触发新呼叫', 'warn');
+}
+
+function updateBtn() {
+    const b = document.getElementById('btnToggle');
+    if (running) {
+        b.className = 'btn-stop px-6 py-2.5 rounded-lg font-medium text-sm flex items-center gap-2';
+        b.innerHTML = '<i class="fa-solid fa-stop text-xs"></i><span>停止呼叫</span>';
+    } else {
+        b.className = 'btn-go px-6 py-2.5 rounded-lg font-medium text-sm flex items-center gap-2';
+        b.innerHTML = '<i class="fa-solid fa-play text-xs"></i><span>开始呼叫</span>';
+    }
+}
+
+// 尝试触发下一个呼叫
+function tryNext() {
+    if (!running) return;
+    const list = actives();
+    while (list.length < concurrency) {
+        const next = customers.find(c => c.status === 1);
+        if (!next) {
+            if (list.length === 0) {
+                log('所有客户呼叫完成', 'success');
+                toast('全部呼叫完成', 'success');
+                stopRun();
+            }
+            break;
+        }
+        doStartCall(next);
+        list.push(next);
+    }
+}
+
+// 发起呼叫（模拟调接口）
+function doStartCall(c) {
+    c.status = 2;
+    c.callStart = Date.now();
+    c.endReason = '';
+    // 模拟接口调用
+    log(`[接口调用] 开始呼叫 → ${c.pid}（机器人外呼）`, 'api');
+    console.log(`[API] POST /api/call/start  { pid: "${c.pid}", type: "robot" }`);
+    renderAll();
+    // 启动该客户的独立轮询
+    startPoll(c);
+}
+
+// 单客户轮询
+function startPoll(c) {
+    c.pollTimer = setInterval(() => poll(c), 2000);
+}
+
+function stopPoll(c) {
+    if (c.pollTimer) { clearInterval(c.pollTimer); c.pollTimer = null; }
+}
+
+function poll(c) {
+    if (![2,3,4].includes(c.status)) { stopPoll(c); return; }
+    const elapsed = Date.now() - c.callStart;
+    console.log(`[API] GET /api/call/status/${c.pid}  → 当前: ${ST[c.status].label}`);
+
+    if (c.status === 2) {
+        // 机器人呼叫中：约3-6秒后接通进入通话，或未接通
+        if (elapsed > 3000 + Math.random() * 2500) {
+            if (Math.random() > 0.12) {
+                c.status = 3;
+                log(`[轮询] ${c.pid} → 机器人通话中`, 'success');
+            } else {
+                finish(c, '未接通');
+                return;
+            }
+        }
+    } else if (c.status === 3) {
+        // 机器人通话中：话术播完即完成（4秒拨号 + scriptDuration秒话术）
+        if (elapsed > 4000 + c.scriptDuration) {
+            finish(c, '话术完成');
+            return;
+        }
+    } else if (c.status === 4) {
+        // 人工呼叫中：约8-14秒后完成
+        if (elapsed > 8000 + Math.random() * 6000) {
+            finish(c, '人工结束');
+            return;
+        }
+    }
+    renderAll();
+}
+
+// 呼叫完成
+function finish(c, reason) {
+    c.status = 5;
+    c.endReason = reason;
+    stopPoll(c);
+    visiblePids.delete(c.pid); // 移除，下次新客户进入可播动画
+    log(`${c.pid} 呼叫完成 → ${reason}`, reason==='未接通'?'warn':'success');
+    toast(`${c.pid} ${reason}`, reason==='未接通'?'warn':'success');
+    console.log(`[API] GET /api/call/status/${c.pid}  → 已完成(${reason})`);
+    renderAll();
+    // 延迟一点再触发下一个，让卡片退出动画有时间
+    setTimeout(() => tryNext(), 400);
+}
+
+// 人工介入
+function intervene(pid) {
+    const c = customers.find(x => x.pid === pid);
+    if (!c || ![2,3].includes(c.status)) return;
+    const from = ST[c.status].label;
+    c.status = 4;
+    log(`[人工介入] ${pid}：${from} → 人工呼叫中`, 'warn');
+    toast(`已转人工：${pid}`, 'warn');
+    console.log(`[API] POST /api/call/intervene  { pid: "${pid}" }`);
+    // 轮询已在运行，继续轮询即可
+    renderAll();
+}
+
+// ===================== 时钟 =====================
+function tick() {
+    document.getElementById('clock').textContent = new Date().toLocaleString('zh-CN',{
+        year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false
+    });
+}
+
+// ===================== 初始化 =====================
+renderAll();
+renderConc();
+tick();
+setInterval(tick, 1000);
+</script>
+</body>
+</html>
